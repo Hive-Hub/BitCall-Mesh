@@ -1,0 +1,793 @@
+# MASTER DEVELOPMENT PROMPT — BITCALL
+## Encrypted Bluetooth Mesh Calling and Messaging for Android
+
+### 1. Project Overview
+
+Build a complete, production-oriented Android application named **BitCall**.
+
+BitCall is an offline-first communication platform that allows users to exchange encrypted text messages and, where technically feasible, voice calls through a network of nearby Android phones. Devices cooperate to relay encrypted packets across multiple hops, extending communication beyond the range of a single Bluetooth connection.
+
+The application must prioritize privacy, low latency, reliable delivery, battery efficiency, and a modern user experience.
+
+**Core concept:** Every user owns a cryptographic identity. Contacts store verified public keys locally. Messages are encrypted end-to-end and can be forwarded through participating BitCall devices without relay devices being able to read their contents.
+
+The app must not require a central server for its core local communication features. Internet connectivity may be used as an optional fallback in future versions, but it must not be required for direct offline messaging.
+
+### 2. Primary Objectives
+
+1. Establish a unique cryptographic identity on every device.
+2. Generate and securely protect public/private key pairs.
+3. Allow contacts to be added using QR codes, public keys, and optional phone-number labels.
+4. Provide local contact storage and password-protected conversations.
+5. Support direct Bluetooth communication between nearby devices.
+6. Implement multi-hop encrypted message forwarding through participating phones.
+7. Provide reliable offline messaging, acknowledgements, retries, and message expiry.
+8. Investigate low-latency voice communication using an appropriate Bluetooth transport.
+9. Provide a modern, polished Android interface.
+10. Include automated tests, security checks, documentation, and a reproducible build process.
+
+### 3. Required Technology Stack
+
+Use the following technologies unless a documented technical limitation requires an alternative.
+
+- **Language:** Kotlin
+- **Android UI:** Jetpack Compose
+- **Design system:** Material 3
+- **Build system:** Gradle Kotlin DSL
+- **Architecture:** MVVM with clean architecture principles
+- **Dependency injection:** Hilt
+- **Local database:** Room
+- **Preferences:** DataStore
+- **Background execution:** Android foreground services where appropriate
+- **Cryptographic key protection:** Android Keystore
+- **Audio capture and playback:** AudioRecord and AudioTrack
+- **Voice compression:** Opus, subject to library compatibility and licensing review
+- **Bluetooth:** Android Bluetooth APIs, with Bluetooth Low Energy for discovery and suitable data transport
+- **Testing:** JUnit, coroutine testing, Android instrumentation tests, and UI tests
+
+Choose a stable Android SDK and compatible library versions. Document the exact versions used.
+
+### 4. Application Architecture
+
+Organize the project into independently testable modules.
+
+```text
+BitCall/
+├── app/
+├── core/
+│   ├── common/
+│   ├── crypto/
+│   ├── database/
+│   ├── bluetooth/
+│   ├── mesh/
+│   ├── audio/
+│   └── security/
+├── feature/
+│   ├── onboarding/
+│   ├── identity/
+│   ├── contacts/
+│   ├── chat/
+│   ├── calls/
+│   ├── nearby/
+│   └── settings/
+├── domain/
+├── data/
+├── testing/
+├── docs/
+├── gradle/
+├── build.gradle.kts
+├── settings.gradle.kts
+└── README.md
+```
+
+Keep the application modular, with clear interfaces between the user interface, identity management, cryptography, transport, routing, message storage, and audio components.
+
+Use Kotlin coroutines and Flow for asynchronous work and observable application state.
+
+### 5. First-Time Setup and Identity Creation
+
+On the first launch, guide the user through a secure onboarding flow.
+
+#### Step 1: Welcome screen
+
+Display:
+
+- BitCall logo and branding.
+- A short explanation of offline communication.
+- A privacy notice.
+- A button to create a BitCall identity.
+
+#### Step 2: Bluetooth permissions
+
+Request only the Android permissions required by the selected features and supported Android versions.
+
+Handle:
+
+- Bluetooth scanning.
+- Bluetooth connection.
+- Nearby-device permissions.
+- Notifications.
+- Microphone access when the user initiates voice calling.
+
+Ask the user to enable Bluetooth using the appropriate Android system flow when necessary. Never silently bypass system permission controls.
+
+#### Step 3: Generate identity
+
+Generate cryptographic keys locally on the device.
+
+Use a vetted cryptographic implementation and suitable algorithms, such as:
+
+- Ed25519 for identity signatures, where supported by the selected library.
+- X25519 for key agreement, where supported.
+- HKDF for deriving session keys.
+- An authenticated encryption scheme such as ChaCha20-Poly1305 or AES-GCM.
+- A reviewed protocol for session establishment and key rotation.
+
+Do not invent a cryptographic protocol. Use a maintained, reviewed implementation and document any algorithm compatibility constraints.
+
+The identity must contain:
+
+- A random, unique BitCall ID.
+- A public identity key.
+- A protected private identity key.
+- A key fingerprint.
+- An identity creation timestamp.
+- A key version and lifecycle state.
+
+Generate private keys on the device. Protect key material using Android Keystore where possible. If a library requires exportable private-key bytes, encrypt them with a Keystore-protected key before persistence.
+
+Never upload private keys to a server or distribute them to relay devices.
+
+#### Step 4: App lock
+
+Allow the user to configure an application password or PIN.
+
+Requirements:
+
+- Never store the password in plaintext.
+- Use a unique salt and a suitable password-based key derivation function, such as Argon2id or scrypt, using a maintained implementation.
+- If platform or library constraints require PBKDF2, document the choice and use appropriate parameters.
+- Protect sensitive operations using device authentication where supported.
+- Apply rate limiting and temporary lockouts to repeated failed unlock attempts.
+- Avoid permanently locking users out because of a temporary Bluetooth or network failure.
+
+Clearly distinguish the app-lock password from the user's identity keys and conversation encryption keys.
+
+#### Step 5: Identity backup
+
+Provide an optional encrypted identity backup and recovery flow.
+
+The backup must be encrypted before leaving the device. Explain the consequences of losing the recovery material. Never provide an insecure server-side recovery mechanism that exposes private keys.
+
+### 6. Contact Management
+
+Create a complete local contact-management system.
+
+Each contact record should support:
+
+- Display name.
+- Optional phone number.
+- BitCall ID.
+- Public identity key.
+- Public-key fingerprint.
+- Verification status.
+- Date added.
+- Last-seen timestamp, if available.
+- Contact protection settings.
+- Block status.
+
+A phone number is only a user-provided contact label unless a separate verification mechanism is implemented. It must not be treated as proof of cryptographic identity.
+
+#### Add contact methods
+
+Implement:
+
+1. Scan a QR code.
+2. Import a public-key identity file.
+3. Enter or paste a public key.
+4. Exchange identity information with a nearby device.
+5. Verify the identity using a fingerprint or QR comparison.
+
+Before trusting a new contact, clearly display whether their identity has been verified.
+
+Provide warnings when an existing contact's public key changes. Never silently replace a previously verified key.
+
+#### Contact QR code
+
+Include only the information necessary to identify and verify the contact, such as:
+
+- BitCall ID.
+- Public identity key.
+- Key fingerprint or verification data.
+- Identity format version.
+
+Never include private keys, passwords, or conversation secrets in a QR code.
+
+### 7. Contact Password Protection
+
+Allow the user to protect individual contacts or conversations with a separate password.
+
+Implement these three independent security layers:
+
+1. **App lock:** Protects access to BitCall.
+2. **Contact lock:** Protects access to selected contact information or conversations.
+3. **End-to-end encryption:** Protects message contents during transmission.
+
+The contact password must not be used as a substitute for public-key authentication or secure session establishment.
+
+For protected contacts:
+
+- Ask the user to create and confirm a password.
+- Derive a protection key using a unique salt and a suitable password-based key derivation function.
+- Use the derived key to protect the appropriate local contact secret or access-controlled data.
+- Never save the password itself.
+- Never send the password through Bluetooth.
+- Never use the contact password as a shared network routing secret.
+- Provide password reset and recovery explanations without pretending that encrypted data can always be recovered without the required key.
+
+Allow users to choose whether a password is required when opening a conversation or when accessing protected contact details.
+
+### 8. End-to-End Encryption
+
+All private messages must be encrypted on the sender's device before transmission.
+
+The recipient must be the only intended endpoint capable of decrypting the message contents.
+
+Implement a reviewed cryptographic session protocol that provides:
+
+- Authenticated peer identity.
+- Secure key agreement.
+- Session-key derivation.
+- Message confidentiality and integrity.
+- Replay protection.
+- Key rotation.
+- Protection against unauthorized identity substitution.
+- Forward secrecy where supported by the selected protocol.
+- Safe session re-establishment after device reconnection.
+
+Use a well-reviewed protocol and implementation rather than combining cryptographic primitives without a formal design.
+
+Use authenticated encryption for every protected message.
+
+A message should contain routing metadata and an encrypted payload. Routing metadata should reveal as little personal information as practical.
+
+Example logical message structure:
+
+```text
+MeshPacket
+├── protocolVersion
+├── messageId
+├── destinationRoutingId
+├── originRoutingId
+├── createdAt
+├── expiresAt
+├── hopLimit
+├── packetType
+├── encryptedPayload
+└── authenticationData
+```
+
+Treat this as a logical schema, not a requirement to expose all fields publicly. Minimize linkable identifiers and sensitive metadata.
+
+Validate all packet fields before processing. Reject malformed, expired, unauthenticated, oversized, or invalid packets.
+
+### 9. Bluetooth Communication Layer
+
+Implement a dedicated Bluetooth transport module.
+
+It must support:
+
+- Device discovery.
+- Secure connection establishment.
+- Connection-state monitoring.
+- Message framing.
+- Data integrity checks.
+- Connection timeout handling.
+- Disconnection recovery.
+- Reconnection when permitted.
+- Transfer queues.
+- Backpressure and rate limiting.
+- Device compatibility checks.
+
+Evaluate BLE GATT and Bluetooth Classic RFCOMM for their respective requirements.
+
+Do not assume BLE is the best transport for continuous voice. Benchmark supported devices and select a transport based on measured throughput, latency, connection stability, and operating-system restrictions.
+
+Keep Bluetooth transport separate from message encryption and mesh routing so that future transports can be introduced without rewriting the entire application.
+
+### 10. Multi-Hop Mesh Networking
+
+Build a controlled, decentralized relay system that allows encrypted messages to travel through multiple participating BitCall phones.
+
+Example:
+
+```text
+Phone A
+   |
+   | Bluetooth
+   v
+Phone B
+   |
+   | Encrypted packet relay
+   v
+Phone C
+   |
+   | Encrypted packet relay
+   v
+Phone D
+   |
+   v
+Phone Z — Recipient
+```
+
+Phones B, C, and D must not be able to read the private message exchanged between A and Z.
+
+#### Mesh requirements
+
+Implement:
+
+- Unique message identifiers.
+- Duplicate-message suppression.
+- Hop limits and expiry times.
+- Per-peer forwarding limits.
+- Bounded message queues.
+- Message acknowledgements.
+- Retry policies.
+- Routing-state expiry.
+- Rate limiting.
+- Congestion-aware scheduling.
+- Loop prevention.
+- Peer trust and blocking controls.
+- Malformed-packet rejection.
+- Protection against resource-exhaustion attacks.
+
+Use a suitable mesh-routing design. Evaluate Bluetooth Mesh managed flooding or a custom controlled-forwarding protocol. Document why the selected design fits ordinary Android phones and the intended topology.
+
+Do not implement unrestricted broadcast forwarding.
+
+#### Store-and-forward
+
+When the recipient is unavailable, eligible relay nodes may temporarily retain encrypted packets.
+
+Requirements:
+
+- Store only encrypted payloads.
+- Apply message expiry and storage limits.
+- Remove expired packets.
+- Avoid indefinite retention.
+- Respect blocked users and relay policies.
+- Prevent duplicate delivery.
+- Support delivery receipts where feasible.
+- Never claim that a message has been delivered until the delivery state confirms it.
+
+Provide settings to control whether the user's phone participates in relaying other people's messages.
+
+#### Scalability
+
+The application must not claim that it supports hundreds or thousands of simultaneously connected devices until this has been measured.
+
+Build a configurable test harness that simulates different numbers of nodes and topologies. Also perform physical tests with multiple Android devices.
+
+Measure:
+
+- Successful message delivery.
+- Median and tail latency.
+- Throughput.
+- Duplicate packets.
+- Queue depth.
+- Packet loss.
+- Battery consumption.
+- Recovery after connections disappear.
+
+### 11. Offline Chat
+
+Implement a polished messaging interface.
+
+Features:
+
+- Conversation list.
+- One-to-one chat.
+- Text messages.
+- Message timestamps.
+- Sending, queued, delivered, and failed states.
+- Offline message queues.
+- Retry and resend.
+- Local conversation history.
+- Message deletion.
+- Contact blocking.
+- Encrypted message storage.
+- Unread counts.
+- Search within local conversations.
+- Delivery status that accurately reflects what the application knows.
+
+Do not display fake online status or fabricated delivery confirmations.
+
+The UI should distinguish between a message that has been accepted into a local queue and one that has actually reached its recipient.
+
+### 12. Voice Calling
+
+Implement an experimental voice-call module that can be enabled after the text-messaging transport is stable.
+
+Requirements:
+
+- Initiate and accept calls.
+- Incoming-call screen.
+- Microphone permission handling.
+- Call status.
+- Mute and unmute.
+- End call.
+- Audio capture and playback.
+- Adaptive audio packet sizing.
+- Packet-loss handling.
+- Jitter buffering.
+- Congestion-aware audio transmission.
+- Audio session management.
+- Call reconnection where feasible.
+
+Use AudioRecord and AudioTrack for audio capture and playback. Evaluate Opus for compression.
+
+For direct calls, measure whether the chosen Bluetooth transport can meet the target latency and audio-quality requirements.
+
+For multi-hop calls, implement a separate low-latency packet-forwarding strategy and prioritize voice traffic appropriately. Do not use an unbounded store-and-forward queue for live audio.
+
+If the available Bluetooth transport cannot deliver usable real-time voice, document the measured limitation and implement the best-supported fallback without pretending that the call is working.
+
+Do not enable the microphone or initiate calls without the user's explicit action.
+
+### 13. Application Screens
+
+Create the following screens using Jetpack Compose and Material 3.
+
+**Onboarding**
+- Welcome.
+- Permissions.
+- Identity creation.
+- App lock setup.
+- Recovery and backup explanation.
+
+**Home**
+- Recent conversations.
+- Nearby devices.
+- Connection status.
+- Search.
+- Quick actions.
+
+**Contacts**
+- Contact list.
+- Add contact.
+- QR scanner.
+- Public-key import.
+- Fingerprint verification.
+- Contact protection.
+- Block and unblock.
+
+**Chat**
+- Message bubbles.
+- Connection and delivery states.
+- Composer.
+- Retry.
+- Contact verification indicator.
+- Protected conversation unlock.
+
+**Calls**
+- Incoming call.
+- Outgoing call.
+- Active call.
+- Mute.
+- End call.
+- Call diagnostics.
+
+**Nearby**
+- Discoverable devices.
+- Connection requests.
+- Peer connection status.
+- Relay participation settings.
+
+**Settings**
+- Identity.
+- QR code.
+- App lock.
+- Contact security.
+- Bluetooth.
+- Notifications.
+- Relay preferences.
+- Storage and privacy.
+- Diagnostics.
+- Export and recovery.
+
+**Diagnostics**
+- Current transport.
+- Connected peer count.
+- Active relay state.
+- Message queue depth.
+- Latency measurements.
+- Packet delivery metrics.
+- Errors and permissions.
+
+Do not expose private keys, passwords, decrypted message contents, or sensitive cryptographic material in diagnostic logs.
+
+### 14. UI and Design Requirements
+
+Create a modern, premium Android communication application.
+
+Visual direction:
+
+- Dark-first interface with a restrained accent color.
+- Clean typography.
+- Rounded conversation cards.
+- Subtle animations.
+- Smooth navigation.
+- Clear verification indicators.
+- Accessible contrast.
+- Responsive layouts.
+- Light and dark themes.
+- Material 3 components.
+- Appropriate empty, loading, offline, error, and permission-denied states.
+
+Avoid excessive decoration. Security states must be visually clear and understandable.
+
+The interface must remain responsive while scanning for devices, forwarding packets, saving messages, or performing cryptographic operations.
+
+### 15. Local Data Storage
+
+Use Room for structured application data.
+
+Suggested entities:
+
+- UserIdentityEntity
+- ContactEntity
+- ConversationEntity
+- MessageEntity
+- SessionMetadataEntity
+- MeshQueueEntity
+- DevicePeerEntity
+- CallHistoryEntity
+- SecuritySettingsEntity
+
+Requirements:
+
+- Persist only necessary data.
+- Encrypt sensitive message contents and protected fields before database storage.
+- Use parameterized database operations.
+- Apply retention limits to relay queues.
+- Avoid storing raw private keys in database columns.
+- Exclude secrets from backups unless an explicit encrypted-backup flow is implemented.
+- Support schema migrations.
+- Handle corrupted or incompatible stored records safely.
+
+Do not assume that Room or Android Keystore automatically encrypts every database field.
+
+### 16. Android Background Operation
+
+BitCall must handle Android lifecycle and background limitations responsibly.
+
+Implement:
+
+- User-controlled relay mode.
+- Foreground service when justified and permitted.
+- Visible notification while an ongoing foreground service is active.
+- Appropriate service types and permissions for the target SDK.
+- Graceful shutdown.
+- Battery-optimization guidance where relevant.
+- Recovery after process death.
+- Bluetooth permission revocation handling.
+- Bluetooth disabled-state handling.
+- Reconnection when the operating system allows it.
+
+Do not promise uninterrupted background discovery on every Android device.
+
+The application must remain useful when the user disables background relaying or when Android suspends its processes.
+
+### 17. Security and Privacy Threat Model
+
+Document and address these threats:
+
+- Public-key substitution.
+- Impersonation.
+- Unauthorized contacts.
+- Malicious relay devices.
+- Replayed messages.
+- Duplicate forwarding.
+- Routing loops.
+- Packet manipulation.
+- Traffic analysis.
+- Message leakage through logs.
+- Password guessing.
+- Lost or stolen devices.
+- Database extraction.
+- Malformed packet attacks.
+- Denial of service.
+- Compromised endpoints.
+
+Implement a security policy that explains what BitCall can and cannot protect against.
+
+End-to-end encryption cannot protect a message from an attacker who controls an endpoint while it is unlocked. Encryption also does not completely hide traffic timing, packet sizes, or the fact that devices are communicating.
+
+Do not describe the application as unbreakable or guarantee absolute anonymity.
+
+### 18. Testing Requirements
+
+Create automated tests for every core module.
+
+**Cryptography**
+- Key generation.
+- Signature verification.
+- Session establishment.
+- Encryption and decryption.
+- Tampered-packet rejection.
+- Replay protection.
+- Key changes.
+- Invalid identities.
+
+**Contacts**
+- Public-key import.
+- Duplicate contacts.
+- Fingerprint verification.
+- Contact lock.
+- Incorrect password.
+- Password rate limiting.
+- Key-change warnings.
+
+**Mesh**
+- Direct delivery.
+- Multi-hop delivery.
+- Duplicate suppression.
+- Expired messages.
+- Hop-limit enforcement.
+- Disconnected recipients.
+- Route recovery.
+- Malicious packet rejection.
+
+**Messaging**
+- Offline sending.
+- Queue persistence.
+- Retry.
+- Delivery receipts.
+- Database migration.
+- Message deletion.
+
+**Voice**
+- Audio capture.
+- Audio playback.
+- Call termination.
+- Permission denial.
+- Packet loss.
+- Latency measurement.
+- Connection interruption.
+
+**Android integration**
+- Bluetooth permission denial.
+- Bluetooth disabled.
+- Screen locked.
+- App backgrounded.
+- Process termination.
+- Device reboot.
+- Notification permission denial.
+
+Create a repeatable test report. Do not invent successful results for tests that have not run.
+
+### 19. Development Phases
+
+Build the application in these stages.
+
+**Phase 1 — Foundation**
+- Android project setup.
+- Compose navigation.
+- Onboarding.
+- Identity creation.
+- App lock.
+- Local database.
+
+**Phase 2 — Identity and contacts**
+- QR generation and scanning.
+- Public-key import.
+- Contact verification.
+- Contact password protection.
+- Security tests.
+
+**Phase 3 — Direct messaging**
+- Bluetooth discovery.
+- Two-device pairing.
+- Encrypted message exchange.
+- Local history.
+- Delivery status.
+
+**Phase 4 — Multi-hop mesh**
+- Relay protocol.
+- Forwarding queues.
+- Duplicate suppression.
+- Hop limits.
+- Store-and-forward.
+- Multi-device tests.
+
+**Phase 5 — Voice**
+- Audio capture and playback.
+- Compression.
+- Direct-call experiments.
+- Packet prioritization.
+- Voice quality and latency benchmarks.
+
+**Phase 6 — Hardening**
+- Threat-model review.
+- Battery and performance tests.
+- Accessibility.
+- Database migrations.
+- Error handling.
+- Release build.
+- Documentation.
+
+Do not implement all modules as a single large file. Complete and test each phase before depending on it in later phases.
+
+### 20. Required Deliverables
+
+Produce:
+
+1. A complete Android Studio project.
+2. A clear module and package structure.
+3. Gradle configuration files.
+4. Kotlin source code.
+5. Compose UI screens.
+6. Room entities, DAOs, and migrations.
+7. Identity and cryptography implementation.
+8. Bluetooth transport.
+9. Multi-hop routing and relay implementation.
+10. Chat and delivery-state logic.
+11. Voice-call prototype and benchmark tooling.
+12. Automated unit and instrumentation tests.
+13. README with setup instructions.
+14. Architecture documentation.
+15. Security and privacy documentation.
+16. Troubleshooting guide.
+17. Debug APK and release-build instructions.
+
+Generate real implementation code, not pseudocode presented as finished functionality. Clearly identify any components that require additional device testing or have not yet been implemented.
+
+### 21. Build and Execution Instructions
+
+The project must be runnable in Android Studio on Windows.
+
+Provide exact instructions to:
+
+1. Install the required JDK and Android SDK.
+2. Open and synchronize the Gradle project.
+3. Build the debug APK.
+4. Install the application on two physical Android phones.
+5. Grant Bluetooth and other required permissions.
+6. Create identities on both phones.
+7. Exchange and verify contact QR codes.
+8. Send and receive an encrypted message.
+9. Add relay devices and test multi-hop delivery.
+10. Run automated tests.
+11. Inspect latency and delivery diagnostics.
+
+Include the exact Gradle commands required for the build and tests. Report real build failures rather than claiming that compilation succeeded when it did not.
+
+### 22. Definition of Done
+
+The first release candidate is complete only when:
+
+- Two Android phones can create independent identities.
+- Users can exchange and verify public keys.
+- Private keys are protected locally.
+- A user can protect a contact or conversation with a password.
+- Two devices can exchange authenticated, encrypted messages over a supported local transport without internet access.
+- Intermediate relay devices cannot decrypt the end-to-end message.
+- Multi-hop delivery works across a tested chain of devices.
+- Duplicate packets and routing loops are controlled.
+- Message status accurately reflects delivery.
+- Bluetooth and microphone permissions are respected.
+- The application builds reproducibly.
+- Core automated tests pass.
+- Known limitations are documented.
+
+Real-time voice calls, high-density scaling, and continuous background operation must be reported as validated only after appropriate physical-device testing.
+
+### Final Instruction to the Coding Agent
+
+Start by inspecting the development environment and establishing the Android project structure. Then implement Phase 1 and Phase 2 completely, with working code and tests. Continue through the phases in order.
+
+At each phase, explain the files created, the design decisions, the commands to run, the tests executed, and any remaining limitations.
+
+Prioritize a secure, working two-device prototype before attempting advanced mesh routing or real-time multi-hop voice communication.
+
+**Build BitCall as a maintainable, privacy-focused Android communication system, not merely a UI mockup.**

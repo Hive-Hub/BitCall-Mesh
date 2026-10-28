@@ -1,0 +1,6 @@
+{
+  "name": "BitCall",
+  "description": "Encrypted Bluetooth Mesh Calling and Messaging with offline relays, cryptographic identity, and AI voice assistance",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
